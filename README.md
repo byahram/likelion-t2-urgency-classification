@@ -112,13 +112,10 @@
 
 #### 3.4.1. **음성 데이터 분석**
 
-<img src="./image/mfcc_mean.png" />
-
-<img src="./image/mfcc_std.png" />
-
-<img src="./image/mfcc_speech_speed.png" />
-
-<img src="./image/mfcc_mean_std.png" />
+|                                             |                                         |
+| ------------------------------------------- | --------------------------------------- |
+| <img src="./image/mfcc_mean.png" />         | <img src="./image/mfcc_std.png" />      |
+| <img src="./image/mfcc_speech_speed.png" /> | <img src="./image/mfcc_mean_std.png" /> |
 
 #### 3.4.2. **메타 데이터 분석**
 
@@ -537,6 +534,6 @@ NUM_EPOCHS = 10
 
 ---
 
-10. QnA
+## 10. QnA
 
 **감사합니다.**
