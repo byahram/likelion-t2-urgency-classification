@@ -236,6 +236,16 @@ class MultimodalClassifier(nn.Module):
 - **사용한 모델 (Audio)**: facebook/wav2vec2-xls-r-300m
   - 선정 이유: 다국어 음성으로 사전 학습되어, 별도 fine-tuning 없이도 음성 특징(prosody, tone) 추출에 효과적.
 
+### 4.3. Audio Encoder 선정 배경 (MFCC vs Wav2Vec2)
+
+- **초기 시도 (MFCC)**: 
+  - 음성 신호 처리에서 전통적으로 사용되는 MFCC(Mel-frequency cepstral coefficients) 를 사용하여 베이스라인을 구축하려 시도.
+  - **한계점**: MFCC는 고정된 특징(hand-crafted feature)으로, 긴급 신고 음성에 담긴 미세한 **운율(prosody)**이나 **감정적 뉘앙스**를 충분히 포착하지 못함. 또한, Text Embedding과의 차원 불일치 문제를 해결하기 위해 추가적인 복잡한 레이어 설계가 필요했음.
+  
+- **최종 결정 (Wav2Vec2)**: 
+  - **선정 이유**: 대량의 음성 데이터로 사전 학습된 Wav2Vec2는 음성의 문맥적 정보(Contextual Information)를 스스로 학습한 모델임.
+  - **이점**: 별도의 복잡한 전처리 없이 raw waveform을 입력받아 고수준의 특징을 추출할 수 있으며, Transformer 기반 구조 덕분에 Text Encoder(KcELECTRA)와의 융합(Fusion)이 구조적으로 용이함.
+  - 
 ---
 
 ## 5. 실험/학습
@@ -519,21 +529,35 @@ NUM_EPOCHS = 10
 - 1주일 제약에서 다양한 실험 병렬 수행으로 최적 조합 발견 (빠른 iteration)
 
 ---
-
 ## 9. 프로젝트 중 이슈 및 향후 개선 방향
 
-- 오디오 데이터 처리 과정에서 마주친 문제들=
-  - 오디오 원본 파일(.wav)의 총용량이 너무 커서, Colab/로컬 환경에서 I/O 및 처리에 시간이 과다하게 소요됨.
-  - 데이터 탑재 로딩 및 분절 작업의 어려움
-  - 대용량 압축파일의 압축 및 해제 과정(.zip, .tar, .tar.gz)
-  - MFCC in baseline - 차원 불일치
-- fine-tuning 메모리 터짐 이슈 - GPU 메모리의 한계
-- 결측치 이슈 - 학습 불안정
-- 잦은 요청으로 인한 구글 드라이브 블락
-- 짧은 프로젝트 기간으로 최선의 성능을 위한 아이디어, 실험의 제한
+### 9.1. 대용량 오디오 데이터 처리 및 파이프라인 구축 (Engineering Challenge)
+초기 학습 파이프라인 구축 단계에서 2만 건이 넘는 고용량 오디오 데이터를 다루는 데 큰 엔지니어링적 난관이 있었습니다.
 
----
+- **I/O 병목 및 로딩 속도 이슈**:
+  - **[Issue]** 오디오 원본 파일(.wav)의 총용량이 너무 커서, Colab 및 로컬 환경에서 개별 파일을 로드할 때 I/O 병목 현상 발생. 단순 데이터 로딩에만 수 시간이 소요되어 학습 사이클(Iteration)을 빠르게 돌리기 어려웠음.
+  - **[Solution]** 데이터를 개별 파일로 두지 않고 `.tar` 아카이브 형태로 묶어 시퀀셜하게 읽어들이는 방식을 도입하여 I/O 오버헤드를 획기적으로 줄임.
+- **데이터 전처리 및 관리의 어려움**:
+  - 데이터 탑재(Mount), 로딩, 그리고 타임스탬프 기반 분절(Slicing) 작업의 복잡성.
+  - 대용량 압축 파일(.zip, .tar, .tar.gz)의 압축 해제 시 용량 부족 및 시간 소요 문제.
 
-## 10. QnA
+### 9.2. 모델 아키텍처 및 Feature Engineering (Modeling Challenge)
+음성 데이터의 특성을 텍스트와 효과적으로 결합하기 위해 Feature Extractor를 선정하는 과정에서 시행착오를 겪었습니다.
 
-**감사합니다.**
+- **MFCC의 한계와 Wav2Vec2 도입**:
+  - **[Issue - MFCC]** 초기 베이스라인에서는 전통적인 **MFCC** 방식을 시도했으나, 2D 이미지 형태의 특징 맵이 생성되어 1D 텍스트 임베딩과 차원(`Dimension Mismatch`)을 맞추기 까다로웠음. 또한, 핸드 크래프트(Hand-crafted) 특징인 MFCC로는 긴급 신고 음성의 미세한 감정과 운율 정보를 담기에 역부족이라 판단함.
+  - **[Solution - Wav2Vec2]** 이를 해결하기 위해 Transformer 기반의 **Wav2Vec2** 모델을 도입. Raw Waveform에서 문맥 정보(Contextual Info)가 포함된 고수준의 특징을 추출하고, 텍스트 인코더(KcELECTRA)와 유사한 차원 구조를 가져 융합(Fusion) 성능을 개선함.
+
+### 9.3. 학습 환경 및 데이터 품질 (Environment & Data Quality)
+- **GPU 메모리 이슈 (OOM)**:
+  - Pretrained 모델(Wav2Vec2 + RoBERTa)을 동시에 로드하고 Fine-tuning(상위 레이어 해제)을 시도하는 과정에서 GPU 메모리 한계(Out Of Memory) 빈번 발생. → 배치 사이즈 조절 및 Gradient Accumulation 등으로 대응.
+- **결측치(Missing Values) 이슈**:
+  - 일부 데이터의 누락으로 인해 Loss가 `NaN`으로 뜨며 학습이 불안정해지는 현상 발생 → 전처리 단계에서 결측 데이터 필터링 강화.
+- **클라우드 환경 제약**:
+  - 잦은 데이터 요청으로 인한 구글 드라이브 API Block(접근 제한) 현상으로 학습 중단 위기.
+
+### 9.4. 프로젝트 제약 사항 (Constraints)
+- **짧은 프로젝트 기간 (1주일)**:
+  - Multi-modal & Multi-task라는 복잡한 주제를 1주일 내에 소화해야 했기에, 더 다양한 최신 모델(SOTA)이나 복잡한 앙상블 기법을 시도해보지 못한 아쉬움이 남음.
+  - 하지만 제한된 시간 내에 **'데이터 전처리 - 모델링 - 검증'**의 전체 파이프라인을 완주했다는 점에 의의를 둠.
+
